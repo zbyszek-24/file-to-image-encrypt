@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import gnupg
 import sys
+from pwinput import pwinput
 
 def create_config_file():
     #create basic config file
@@ -22,7 +23,7 @@ def get_gnupg_path():
             for line_number, line in enumerate(file, start=1):
                 if 'GPG_DIR=' in line:
                     gpg_dir = line[8:].split('\n')[0]
-                    return gnupg.GPG(homedir=gpg_dir)
+                    return gnupg.GPG(gnupghome=gpg_dir)
     else:
         if os.name == 'nt':  # Windows
             gpg_dir = Path(os.getenv('APPDATA')) / 'gnupg'
@@ -33,7 +34,7 @@ def get_gnupg_path():
         create_config_file()
         with open("config.txt", "a") as file:
             file.write(f"GPG_DIR={gpg_dir}")
-        return gnupg.GPG(homedir=gpg_dir)
+        return gnupg.GPG(gnupghome=gpg_dir)
 
 def generate_keys(gpg):
     '''
@@ -88,12 +89,13 @@ def delete_menu(gpg):
 1. Delete private GPG key
 2. Delete public GPG key
 3. Delete public-private keypair
-9. Back to Key Handling Menu
+99. Back to Key Handling Menu
 ''')
     if key_delete_choice == '1':
         all_key_data = keys_list(gpg, True)
         fingerprint = input('Input the key fingerprint (last value):')
-        print(str(gpg.delete_keys(fingerprint, True)))
+        password = pwinput('Input the password of the key:')
+        print(str(gpg.delete_keys(fingerprint, True, passphrase=password)))
     elif key_delete_choice == '2':
         all_key_data = keys_list(gpg, False)
         fingerprint = input('Input the key fingerprint (last value):')
@@ -101,10 +103,11 @@ def delete_menu(gpg):
     elif key_delete_choice == '3':
         all_key_data = keys_list(gpg, True)
         fingerprint = input('Input the key fingerprint (last value):')
-        print(str(gpg.delete_keys(fingerprint, True)))
+        password = pwinput('Input the password of the key:')
+        print(str(gpg.delete_keys(fingerprint, True, passphrase=password)))
         print(str(gpg.delete_keys(fingerprint)))
         keys_list(gpg, True)
-    elif key_delete_choice == '9':
+    elif key_delete_choice == '99':
         key_menu(gpg)
     else:
         print('Incorrect Input. Try Again.')
@@ -135,12 +138,10 @@ def import_menu(gpg):
 
 def key_menu(gpg):
     if len(gpg.list_keys()) == 0:
-        print('No GPG keys found. Get keys now')
         choice = input('''
 Key Handling Menu:    
 1. Generate new GPG key
 2. Import existing GPG keys
-9. Back to Main Menu
 ''')
     else:
         print('GPG keys found: ')
@@ -151,7 +152,7 @@ Key Handling Menu:
 2. Import existing GPG keys
 3. Delete existing GPG keys
 4. List all GPG keys
-9. Back to Main Menu
+99. Back to Main Menu
 ''')
     if choice == '1':
         generated_key = generate_keys(gpg)
@@ -166,29 +167,70 @@ Key Handling Menu:
         keys_list(gpg, False)
         print('Private keys:')
         keys_list(gpg, True)
+    elif choice == '99':
+        main_menu(gpg)
     else:
         print('Incorrect Input. Try Again.')
         key_menu(gpg)
-def encrypt_file(gpg):
-    filepath_to_encrypt = input('Input path of file to encrypt: ')
-    #with open(filepath_to_encrypt, 'rb') as file:
-    #   file_to_encrypt = file.read()
-    keys_list(gpg, True)
-    fingerprint = [input('Input fingerprint of the key that will be used for encryption: ')]
-    encrypted_bytes = gpg.encrypt(filepath_to_encrypt, fingerprint, armor=False)
-    if encrypted_bytes.ok is True:
-        print('Encryption successful')
-        print(encrypted_bytes.data)
+def encrypt_decrypt_file(gpg, encrypt):
+    if encrypt is True:
+        filepath = input('Input path of file to encrypt: ')
+        keys_list(gpg, False)
+        fingerprint = input('Input fingerprint of the key that will be used for encryption: ')
+        byte_output = gpg.encrypt_file(filepath, fingerprint, armor=False)
+        new_filepath = filepath + '.gpg'
+    else:
+        filepath = input('Input path of file to decrypt: ')
+        keys_list(gpg, True)
+        fingerprint = input('Input fingerprint of the key that will be used for decryption: ')
+        byte_output = gpg.decrypt_file(filepath, fingerprint)
+        #seperate the fp (filepath) at each '/', ommit the last part (filename), add it together, add a slash to that,
+        #add the filename while erasing the .gpg in order to have just file.pdf instead of file.pdf.gpg.pdf
+        new_filepath = '/'.join(filepath.split('/')[:-1])+'/'+'.'.join(filepath.split('/')[-1].split('.')[:-1])
+    if byte_output.ok is True:
+        print('Operation Successful')
+        with open(new_filepath, 'wb') as file:
+            file.write(byte_output.data)
+        print(f'The file can be found in {new_filepath}')
+        print('DO NOT CHANGE THE EXTENSION OF THE FILE, THIS WILL STOP IT FROM BEING DECRYPTED CORRECTLY IN THE FUTURE')
     else:
         print('Something went wrong, try again')
-def decrypt_file(gpg):
-    stream = open()
+
+
+def main_menu(gpg):
+    print('GPG Menu')
+    print(
+        '''
+        1. GPG keys handling (Generate, Import, etc.)
+        2. Encrypt file
+        3. Decrypt file
+        99. Quit
+        '''
+    )
+    choice = input('')
+    if choice == '1':
+        key_menu(gpg)
+    if choice == '2':
+        encrypt_decrypt_file(gpg, True)
+    if choice == '3':
+        encrypt_decrypt_file(gpg, False)
+    if choice == '99':
+        confirm = input('Do you want to quit? (y/n) ')
+        if confirm == 'y':
+            quit()
+        else:
+            main_menu(gpg)
+    else:
+        print('Incorrect Input. Try Again')
 
 def main():
-    gpg = get_gnupg_path()
-    #if len(gpg.list_keys()) == 0:
-    key_menu(gpg)
-    #encrypt_file(gpg)
+    while True:
+        gpg = get_gnupg_path()
+        if len(gpg.list_keys()) == 0:
+            print('No GPG keys found. Taking you to the key handling menu.')
+            key_menu(gpg)
+        main_menu(gpg)
+
 
 
 if __name__ == '__main__':
