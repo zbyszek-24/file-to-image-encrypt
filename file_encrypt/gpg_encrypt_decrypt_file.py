@@ -235,8 +235,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-"""
-TODO:
-encryption, decryption, using in another "main" file.
-"""
